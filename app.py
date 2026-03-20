@@ -14,44 +14,83 @@ st.title("🔭 Astronomical Image Denoiser")
 st.caption("Real physics-based noise reduction for astronomical images")
 
 # --- Load image ---
-@st.cache_data
-def load_image():
-    np.random.seed(42)
-    size = 512
-    
-    # Start with a dark background
-    image = np.zeros((size, size), dtype=np.float32)
-    
-    # Add ~200 random stars of varying brightness
-    num_stars = 200
-    for _ in range(num_stars):
-        x, y = np.random.randint(10, size-10, 2)
-        brightness = np.random.exponential(500)
-        # Each star is a small Gaussian blob (simulates real star PSF)
-        for dx in range(-8, 9):
-            for dy in range(-8, 9):
-                if 0 <= x+dx < size and 0 <= y+dy < size:
-                    image[x+dx, y+dy] += brightness * np.exp(-(dx**2+dy**2)/3.0)
-    
-    # Add a faint nebula/galaxy blob in the centre
-    cx, cy = size//2, size//2
-    for i in range(size):
-        for j in range(size):
-            dist = np.sqrt((i-cx)**2 + (j-cy)**2)
-            image[i,j] += 80 * np.exp(-dist**2 / (2*60**2))
+# --- Image Source ---
+st.sidebar.header("📁 Image Source")
+source = st.sidebar.radio("Choose source", [
+    "Upload my own FITS file",
+    "Use sample images"
+])
 
-    # Add realistic noise sources
-    # Photon shot noise (Poisson)
-    image = np.random.poisson(np.clip(image, 0, None)).astype(np.float32)
-    # Read noise (Gaussian)
-    image += np.random.normal(0, 15, image.shape).astype(np.float32)
-    # Cosmic ray spikes
-    num_rays = 15
-    for _ in range(num_rays):
-        x, y = np.random.randint(0, size, 2)
-        image[x, y] += np.random.uniform(2000, 8000)
+if source == "Upload my own FITS file":
+    uploaded = st.sidebar.file_uploader("Upload a FITS file", type=["fits", "fit"])
+    if uploaded is not None:
+        with fits.open(uploaded) as hdul:
+            data = None
+            for hdu in hdul:
+                if hdu.data is not None and hasattr(hdu.data, 'shape'):
+                    arr = np.array(hdu.data, dtype=np.float32)
+                    if arr.ndim == 3:
+                        arr = arr[0]
+                    if arr.ndim == 2:
+                        data = arr
+                        break
+        if data is None:
+            st.error("No 2D image data found in this file.")
+            st.stop()
+        data = data[:512, :512] if data.shape[0] > 512 else data
+        data -= np.median(data)
+        img = np.clip(data, 0, None)
+    else:
+        st.info("👈 Upload a FITS file to get started.")
+        st.stop()
 
-    return np.clip(image, 0, None)
+elif source == "Use sample images":
+    sample = st.sidebar.selectbox("Choose a sample", [
+        "Synthetic Star Field",
+        "Synthetic Galaxy + Nebula",
+        "Synthetic Dense Cluster"
+    ])
+
+    @st.cache_data
+    def make_star_field(seed, num_stars, nebula=False, dense=False):
+        np.random.seed(seed)
+        size = 512
+        image = np.zeros((size, size), dtype=np.float32)
+
+        # Stars
+        for _ in range(num_stars):
+            x, y = np.random.randint(10, size-10, 2)
+            brightness = np.random.exponential(500 if not dense else 200)
+            for dx in range(-8, 9):
+                for dy in range(-8, 9):
+                    if 0 <= x+dx < size and 0 <= y+dy < size:
+                        image[x+dx, y+dy] += brightness * np.exp(-(dx**2+dy**2)/3.0)
+
+        # Optional nebula
+        if nebula:
+            cx, cy = size//2, size//2
+            for i in range(size):
+                for j in range(size):
+                    dist = np.sqrt((i-cx)**2 + (j-cy)**2)
+                    image[i,j] += 80 * np.exp(-dist**2 / (2*60**2))
+
+        # Noise
+        image = np.random.poisson(np.clip(image, 0, None)).astype(np.float32)
+        image += np.random.normal(0, 15, image.shape).astype(np.float32)
+
+        # Cosmic rays
+        for _ in range(15):
+            x, y = np.random.randint(0, size, 2)
+            image[x, y] += np.random.uniform(2000, 8000)
+
+        return np.clip(image, 0, None)
+
+    if sample == "Synthetic Star Field":
+        img = make_star_field(seed=42, num_stars=200)
+    elif sample == "Synthetic Galaxy + Nebula":
+        img = make_star_field(seed=7, num_stars=150, nebula=True)
+    elif sample == "Synthetic Dense Cluster":
+        img = make_star_field(seed=99, num_stars=500, dense=True)
 
 def norm(img):
     interval = ZScaleInterval()
@@ -68,8 +107,6 @@ def snr(img):
     noise = estimate_sigma(img)
     signal = np.mean(img[img > np.median(img)])
     return signal / noise if noise > 0 else 0
-
-img = load_image()
 
 # --- Sidebar ---
 st.sidebar.header("⚙️ Controls")
