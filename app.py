@@ -135,12 +135,12 @@ elif method == "Richardson-Lucy Deconvolution":
 col1, col2 = st.columns(2)
 with col1:
     st.subheader("Original")
-    st.image(norm(img), clamp=True, use_column_width=True)
+    st.image(norm(img), clamp=True, use_container_width=True)
     st.metric("SNR", f"{snr(img):.2f}")
 
 with col2:
     st.subheader(f"Denoised ({method})")
-    st.image(norm(result), clamp=True, use_column_width=True)
+    st.image(norm(result), clamp=True, use_container_width=True)
     st.metric("SNR", f"{snr(result):.2f}",
               delta=f"{((snr(result)-snr(img))/snr(img)*100):.1f}%")
 
